@@ -12,6 +12,7 @@ import networkx as nx
 import datetime
 import bisect
 import gender_guesser.detector as gender
+import matplotlib.pyplot as plt
 
 def find_le(a, x):
     'Find rightmost value less than or equal to x'
@@ -138,13 +139,16 @@ for i in range(len(data_tmp)):
 data = pd.DataFrame.from_dict(senders, orient='index', columns= ['sender'])
 data['recipient'] = pd.Series(recipients)
 data['ts'] = pd.Series(ts)
+data['ts_or'] = pd.Series(ts_or)
 #data = pd.DataFrame(index=range(len(data_tmp)), columns = ['sender', 'recipient', 'ts'])
 ### find from, to and date in message
 
     
-users_list = [i for i in senders.values() if 'enron' in i]+[i for i in recipients.values() if 'enron' in i]
+users_list_all = [i for i in senders.values() if 'enron' in i]+[i for i in recipients.values() if 'enron' in i]
 
-users_list = np.unique(users_list)
+users_list, count = np.unique(users_list_all, return_counts=True)
+count_sort_ind = np.argsort(-count)
+users_list = users_list[count_sort_ind]
 email = {i:n for i, n in enumerate(users_list)}
 first_name = {i:n.split('.')[0].capitalize() for i, n in enumerate(users_list)}
 
@@ -182,8 +186,9 @@ users_data['gender'] = pd.Series({i:users_data_tmp['gender'][n] for i, n in enum
 users_data['gender_num'] = pd.Series({i:users_data_tmp['gender_num'][n] for i, n in enumerate(human_users_indx)})
 ## copy all the ones from the temporary dataframe (how?)
 ## make df just with human users!!
-    
-dir_matrix_listed = make_time_network(human_users, data, human_users)  
+
+size = 200    
+dir_matrix_listed = make_time_network(human_users[:200], data, human_users[:200])  
 
 nw_tot = np.sum(dir_matrix_listed['nw'], axis=2)
 
@@ -280,10 +285,24 @@ users_data.loc[users_data['tot_msg_sent'] < 10, 'overwork_ratio_1'] = 0
 
 users_data.to_csv('users_data.csv')
 
+node_colors = ['blue' if users_data['gender_num'][k] == 0 else 'red' for k in G1.nodes]
+pos = nx.drawing.nx_agraph.graphviz_layout(G1, prog = 'neato')
+#pos1 = {k:v for k, v in pos.items() if k in G_comm.nodes}
 
+fig = plt.figure(frameon=False, dpi=500, figsize=(10,10))
 
+nx.draw_networkx_nodes(G1, pos, 
+                       #node_color='Purple', 
+                      # cmap = 'Purples',
+                       #vmax = 1.2,
+                       #vmin = -0.005,
+                       node_color = node_colors,
+                       #node_size = 1000,
+                       #node_size = node_size,
+                       alpha = 0.9
+                       )
+nx.draw_networkx_edges(G1, pos, alpha = 0.4)
 
+    #nx.draw_networkx_labels(G, pos)
 
-
-
-
+plt.show()
