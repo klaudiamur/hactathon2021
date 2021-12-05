@@ -37,22 +37,23 @@ def make_time_network(users, df,
 
     duration = len(timescale)
 
-    network = np.zeros((len(users), len(users), duration), dtype=int)
+    network = np.zeros((len(users), len(users), duration), dtype=int)    
 
     for k in range(len(df)):
-        sen = df.iloc[k]['sender'].split("@", 1)[0]
-        rec = [i.split("@", 1)[0] for i in df.iloc[k]['recipient']]
+        sen = df.iloc[k]['sender']
+        rec = df.iloc[k]['recipient']
 
         if sen in rec_internal:
-            rec = [i for i in rec if i in rec_internal]
-            time = df.iloc[k]['ts'].date()
-
-            t = (time - time_min).days
-
-            sen_indx = users.index(sen)
-            rec_indx = [users.index(r) for r in rec]
-
-            network[sen_indx, rec_indx, t] += 1
+            if rec in rec_internal:
+    
+                time = df.iloc[k]['ts'].date()
+    
+                t = (time - time_min).days
+    
+                sen_indx = users.index(sen)
+                rec_indx = users.index(rec)
+    
+                network[sen_indx, rec_indx, t] += 1
 
     for i in range(len(users)):
         network[i][i] = 0
@@ -108,8 +109,6 @@ def make_tight_nw(dir_matrix, biwe, wts, tst):
     return G, nw_biwe_tot
 
 
-
-
 path = '/Users/klaudiamur/Documents/hackathon'
 
 data_tmp = pd.read_csv(path+'/emails.csv')
@@ -117,20 +116,24 @@ data_tmp = pd.read_csv(path+'/emails.csv')
 senders = {}
 recipients = {}
 ts = {}
+ts_or = {}
+j = 0
 
 for i in range(len(data_tmp)):
     message1 = data_tmp['message'][i].partition('From:')[-1]
     sender = message1.split()[0]
-    sender.replace(',', '')
+    sender = sender.replace(',', '')
     message1 = data_tmp['message'][i].partition('To:')[-1]
     recipient = message1.split()[0]
-    recipient.replace(',', '')
+    recipient = recipient.replace(',', '')
     message1 = data_tmp['message'][i].partition('Date: ')[-1]
     t = pd.to_datetime(message1.partition('\n')[0], utc=True) # split at new line
-    
-    senders[i] = sender
-    recipients[i] = recipient
-    ts[i] = t
+    if t > pd.to_datetime('1999-01-01', utc=True) and t < pd.to_datetime('2002-01-01', utc=True):
+        senders[j] = sender
+        recipients[j] = recipient
+        ts[j] = t
+        ts_or[j] = pd.to_datetime(message1.partition('\n')[0])
+        j += 1
 
 data = pd.DataFrame.from_dict(senders, orient='index', columns= ['sender'])
 data['recipient'] = pd.Series(recipients)
@@ -142,11 +145,45 @@ data['ts'] = pd.Series(ts)
 users_list = [i for i in senders.values() if 'enron' in i]+[i for i in recipients.values() if 'enron' in i]
 
 users_list = np.unique(users_list)
+email = {i:n for i, n in enumerate(users_list)}
 first_name = {i:n.split('.')[0].capitalize() for i, n in enumerate(users_list)}
 
+users_data_tmp = pd.DataFrame.from_dict(first_name, orient='index', columns = ['first_name'])
+users_data_tmp['Email'] = pd.Series(email)
+### get gender
+d = gender.Detector()
+genderlist = {}
+for n in users_data_tmp.index:
+    fn = users_data_tmp['first_name'][n]
+
+    gender1 = d.get_gender(fn)
+    genderlist[n] = gender1
+
+users_data_tmp['gender'] = pd.Series(genderlist)
+dict1 = {}
+for n in users_data_tmp.index:
+    g = users_data_tmp['gender'][n]
+    # print(g)
+    if g in ['female' or 'mostly_female']:
+        dict1[n] = 1
+        # print(1)
+    elif g in ['male' or 'mostly_male']:
+        dict1[n] = 0
+        # print(0)
+users_data_tmp['gender_num'] = pd.Series(dict1)
+
+### pick only the ones that have a first name!
+d = users_data_tmp['gender_num'].to_dict()
+human_users_indx = [i for i, n in genderlist.items() if n != 'unknown']
+human_users = [email[i] for i in human_users_indx]   
+users_data =  pd.DataFrame.from_dict({i:n for i, n in enumerate(human_users)}, orient='index', columns= ['Email'])
+users_data['first_name'] = pd.Series({i:users_data_tmp['first_name'][n] for i, n in enumerate(human_users_indx)})
+users_data['gender'] = pd.Series({i:users_data_tmp['gender'][n] for i, n in enumerate(human_users_indx)})
+users_data['gender_num'] = pd.Series({i:users_data_tmp['gender_num'][n] for i, n in enumerate(human_users_indx)})
+## copy all the ones from the temporary dataframe (how?)
+## make df just with human users!!
     
-    
-dir_matrix_listed = make_time_network(users_list, data, users_list)  
+dir_matrix_listed = make_time_network(human_users, data, human_users)  
 
 nw_tot = np.sum(dir_matrix_listed['nw'], axis=2)
 
@@ -169,39 +206,11 @@ out_degree = dict(G_dir.out_degree)
 in_degree = dict(G_dir.in_degree)
                  
 ## get the name!                 
-
-users_data = pd.DataFrame.from_dict(first_name, orient='index', columns = ['first_name'])
 users_data['tot_msg_sent'] = pd.Series(out_send_stats_dic)
 users_data['tot_msg_recieved'] = pd.Series(in_send_stats_dic)
 users_data['out_degree'] = pd.Series(out_degree)
 users_data['in_degree'] = pd.Series(in_degree)
 
-### get gender
-d = gender.Detector()
-genderlist = {}
-for n in users_data.index:
-    first_name = users_data['first_name'][n]
-    if first_name == 'Guenther':
-        first_name = 'Günther'
-    if first_name == 'EvaMaria':
-        first_name = 'Eva Maria'
-    if first_name == 'Juergen':
-        first_name = 'Jürgen'
-    gender1 = d.get_gender(first_name)
-    genderlist[n] = gender1
-
-users_data['gender'] = pd.Series(genderlist)
-dict1 = {}
-for n in users_data.index:
-    g = users_data['gender'][n]
-    # print(g)
-    if g in ['female' or 'mostly_female']:
-        dict1[n] = 1
-        # print(1)
-    elif g in ['male' or 'mostly_male']:
-        dict1[n] = 0
-        # print(0)
-users_data['gender_num'] = pd.Series(dict1)
 
 
 networks = {'G1': G1, 'G2': G2}
@@ -221,4 +230,60 @@ for name, ntwork in networks.items():
 users_data['degree_centrality_G1_tot'] = users_data['degree_centrality_G1'] * (len(G1.nodes) - 1)
 users_data['degree_centrality_G2_tot'] = users_data['degree_centrality_G2'] * (len(G2.nodes) - 1)
 
+# =============================================================================
+# Identify burnout risk
+# =============================================================================
+
+over_work = pd.DataFrame(users_data['Email'])
+work_days = np.zeros(len(over_work), dtype=int)
+weekends = np.zeros(len(over_work), dtype=int)
+after_wh = np.zeros(len(over_work), dtype=int)
+
+df_dic = data.to_dict('records')
+for row in df_dic: #use their local time?
+    sen = row['sender']    
+    if sen in human_users:
+        indx0 = users_data[users_data['Email'] == sen].index.values
+        if len(indx0) > 0:
+            indx = indx0[0]
+            # rec = [i for i in rec if i in rec_internal]
+            #t = data.iloc[k]['ts_or']
+            t = row['ts_or']
+            #if users_data['Location'][indx] in offsetdic.keys():
+            #    t_loc = t + offsetdic[users_data['Location'][indx]]
+            #else:
+            #    t_loc = t
+            day = t.date().weekday()
+            hour = t.hour
+            #day = df.iloc[k]['origin_timestamp_utc'].date().weekday()
+            #hour = 
+            if day > 5: 
+                weekends[indx] += 1
+            elif hour < 7 or hour > 17:
+                after_wh[indx] += 1
+            else:
+                work_days[indx] += 1
+
+over_work['workdays'] = work_days
+over_work['weekends'] = weekends
+over_work['after_wh'] = after_wh
+users_data['overwork_ratio_1'] = over_work['weekends'] / (
+            over_work['workdays'] + over_work['weekends'])  ### only if they sent at least 10 emails!
+users_data['overwork_ratio_1_ah'] = over_work['after_wh'] / (
+            over_work['workdays'] + over_work['after_wh'])  ### only if they sent at least 10 emails!
+
+users_data['overwork_tot_1'] = over_work['weekends']
+
+users_data.loc[users_data['tot_msg_sent'] < 10, 'overwork_ratio_1'] = 0
+
+
+
 users_data.to_csv('users_data.csv')
+
+
+
+
+
+
+
+
