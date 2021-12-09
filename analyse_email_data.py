@@ -168,17 +168,17 @@ dict1 = {}
 for n in users_data_tmp.index:
     g = users_data_tmp['gender'][n]
     # print(g)
-    if g in ['female' or 'mostly_female']:
+    if g in ['female', 'mostly_female']:
         dict1[n] = 1
         # print(1)
-    elif g in ['male' or 'mostly_male']:
+    elif g in ['male', 'mostly_male']:
         dict1[n] = 0
         # print(0)
 users_data_tmp['gender_num'] = pd.Series(dict1)
 
 ### pick only the ones that have a first name!
 d = users_data_tmp['gender_num'].to_dict()
-human_users_indx = [i for i, n in genderlist.items() if n != 'unknown']
+human_users_indx = [i for i, n in genderlist.items() if n != 'unknown'] ### check so that mostly_female becomes 1
 human_users = [email[i] for i in human_users_indx]   
 users_data =  pd.DataFrame.from_dict({i:n for i, n in enumerate(human_users)}, orient='index', columns= ['Email'])
 users_data['first_name'] = pd.Series({i:users_data_tmp['first_name'][n] for i, n in enumerate(human_users_indx)})
@@ -187,8 +187,8 @@ users_data['gender_num'] = pd.Series({i:users_data_tmp['gender_num'][n] for i, n
 ## copy all the ones from the temporary dataframe (how?)
 ## make df just with human users!!
 
-size = 200    
-dir_matrix_listed = make_time_network(human_users[:200], data, human_users[:200])  
+size = 500    
+dir_matrix_listed = make_time_network(human_users[:size], data, human_users[:size])  
 
 nw_tot = np.sum(dir_matrix_listed['nw'], axis=2)
 
@@ -196,8 +196,8 @@ G_dir = nx.from_numpy_matrix(nw_tot, create_using=nx.DiGraph)
 emails_to_themselves_or_no_emails = list(nx.isolates(G_dir))
 G_dir.remove_nodes_from(list(nx.isolates(G_dir)))
 
-G1, G1_matrix = make_tight_nw(dir_matrix_listed, 7, 1, 2)
-G2, G2_matrix = make_tight_nw(dir_matrix_listed, 7, 9, 2)
+G1, G1_matrix = make_tight_nw(dir_matrix_listed, 7, 1, 5)
+G2, G2_matrix = make_tight_nw(dir_matrix_listed, 14, 12, 2)
   
 out_send_stats_tot = np.sum(nw_tot, axis=1)
 in_send_stats_tot = np.sum(nw_tot, axis=0)
@@ -283,15 +283,16 @@ users_data.loc[users_data['tot_msg_sent'] < 10, 'overwork_ratio_1'] = 0
 
 
 
-users_data.to_csv('users_data.csv')
 
-node_colors = ['blue' if users_data['gender_num'][k] == 0 else 'red' for k in G1.nodes]
-pos = nx.drawing.nx_agraph.graphviz_layout(G1, prog = 'neato')
+
+G = G1
+node_colors = ['blue' if users_data['gender_num'][k] == 0 else 'red' for k in G.nodes]
+pos = nx.drawing.nx_agraph.graphviz_layout(G, prog = 'neato')
 #pos1 = {k:v for k, v in pos.items() if k in G_comm.nodes}
 
 fig = plt.figure(frameon=False, dpi=500, figsize=(10,10))
 
-nx.draw_networkx_nodes(G1, pos, 
+nx.draw_networkx_nodes(G, pos, 
                        #node_color='Purple', 
                       # cmap = 'Purples',
                        #vmax = 1.2,
@@ -301,8 +302,66 @@ nx.draw_networkx_nodes(G1, pos,
                        #node_size = node_size,
                        alpha = 0.9
                        )
-nx.draw_networkx_edges(G1, pos, alpha = 0.4)
+nx.draw_networkx_edges(G, pos, alpha = 0.4)
 
     #nx.draw_networkx_labels(G, pos)
 
 plt.show()
+
+# =============================================================================
+# get homophoily (average of gender_num for neighbours)
+# =============================================================================
+
+#networks to look at: G
+networks = {'G_dir': G_dir, 'G1': G1, 'G2': G2}
+G = G1
+
+for name, G in networks.items():
+    results_dict = {}
+    for n in G.nodes():
+        gender_ratio = np.mean([users_data['gender_num'][n1] for n1 in G.neighbors(n)])
+        results_dict[n] = gender_ratio
+        
+    users_data['homophiliy_'+name] = pd.Series(results_dict)    
+        
+users_data.to_csv('users_data.csv')
+### make a simple pie chart
+labels = ['Women', 'Men']
+headcount = np.mean(users_data['gender_num'][:size])
+
+ratio_f = np.mean(users_data['homophiliy_G_dir'][users_data['gender_num']==1])
+ratio_m = np.mean(users_data['homophiliy_G_dir'][users_data['gender_num']==0])
+ratio_f2 = np.mean(users_data['homophiliy_G2'][users_data['gender_num']==1])
+ratio_m2 = np.mean(users_data['homophiliy_G2'][users_data['gender_num']==0])
+ratio = np.mean(users_data['homophiliy_G_dir'])
+fig1, ax1 = plt.subplots(3, 2, figsize= (10, 18))
+
+ax1[0, 0].pie([headcount,1- headcount] , labels = labels, autopct='%1.1f%%',
+        shadow=True, startangle=90)
+#ax1.pie(
+ax1[0, 0].set_title('Actual gender ratio of company')
+ax1[1, 0].pie([ratio_f,1- ratio_f] , labels = labels, autopct='%1.1f%%',
+        shadow=True, startangle=90)
+#ax1.pie(
+ax1[1, 0].set_title('Who women interact with')
+ax1[1, 1].pie([ratio_m,1- ratio_m] , labels = labels, autopct='%1.1f%%',
+        shadow=True, startangle=90)
+#ax1.pie(
+ax1[1, 1].set_title('Who men interact with')
+ax1[2, 0].pie([ratio_f2,1- ratio_f2] , labels = labels, autopct='%1.1f%%',
+        shadow=True, startangle=90)
+#ax1.pie(
+ax1[2, 0].set_title('Who women closely collaborate with')
+ax1[2, 1].pie([ratio_m2,1- ratio_m2] , labels = labels, autopct='%1.1f%%',
+        shadow=True, startangle=90)
+#ax1.pie(
+ax1[2, 1].set_title('Who men closely collaborate with')
+
+ax1[0, 1].axis('off')
+
+#ax1.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
+
+plt.show()
+
+
+
