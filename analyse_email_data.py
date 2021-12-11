@@ -140,9 +140,6 @@ data = pd.DataFrame.from_dict(senders, orient='index', columns= ['sender'])
 data['recipient'] = pd.Series(recipients)
 data['ts'] = pd.Series(ts)
 data['ts_or'] = pd.Series(ts_or)
-#data = pd.DataFrame(index=range(len(data_tmp)), columns = ['sender', 'recipient', 'ts'])
-### find from, to and date in message
-
     
 users_list_all = [i for i in senders.values() if 'enron' in i]+[i for i in recipients.values() if 'enron' in i]
 
@@ -154,7 +151,8 @@ first_name = {i:n.split('.')[0].capitalize() for i, n in enumerate(users_list)}
 
 users_data_tmp = pd.DataFrame.from_dict(first_name, orient='index', columns = ['first_name'])
 users_data_tmp['Email'] = pd.Series(email)
-### get gender
+
+### get gender based on first name
 d = gender.Detector()
 genderlist = {}
 for n in users_data_tmp.index:
@@ -167,13 +165,13 @@ users_data_tmp['gender'] = pd.Series(genderlist)
 dict1 = {}
 for n in users_data_tmp.index:
     g = users_data_tmp['gender'][n]
-    # print(g)
+
     if g in ['female', 'mostly_female']:
         dict1[n] = 1
-        # print(1)
+
     elif g in ['male', 'mostly_male']:
         dict1[n] = 0
-        # print(0)
+
 users_data_tmp['gender_num'] = pd.Series(dict1)
 
 ### pick only the ones that have a first name!
@@ -184,40 +182,41 @@ users_data =  pd.DataFrame.from_dict({i:n for i, n in enumerate(human_users)}, o
 users_data['first_name'] = pd.Series({i:users_data_tmp['first_name'][n] for i, n in enumerate(human_users_indx)})
 users_data['gender'] = pd.Series({i:users_data_tmp['gender'][n] for i, n in enumerate(human_users_indx)})
 users_data['gender_num'] = pd.Series({i:users_data_tmp['gender_num'][n] for i, n in enumerate(human_users_indx)})
-## copy all the ones from the temporary dataframe (how?)
-## make df just with human users!!
 
+### pick only 500 to make the network smaller
 size = 500    
 dir_matrix_listed = make_time_network(human_users[:size], data, human_users[:size])  
 
 nw_tot = np.sum(dir_matrix_listed['nw'], axis=2)
 
+#Gdir is the directed network that includes all (weighted) email exchanges between two users
 G_dir = nx.from_numpy_matrix(nw_tot, create_using=nx.DiGraph)
 emails_to_themselves_or_no_emails = list(nx.isolates(G_dir))
 G_dir.remove_nodes_from(list(nx.isolates(G_dir)))
 
+## G1: two people have a connection if they have exchanged at least 5 emails (undirected network)
 G1, G1_matrix = make_tight_nw(dir_matrix_listed, 7, 1, 5)
+## G1: two people have a connection if they have exchanged emails in at least 12 14-day periods (undirected network)
 G2, G2_matrix = make_tight_nw(dir_matrix_listed, 14, 12, 2)
   
+## calculte statistics
 out_send_stats_tot = np.sum(nw_tot, axis=1)
 in_send_stats_tot = np.sum(nw_tot, axis=0)
 out_send_stats_dic = {i: out_send_stats_tot[i] for i in range(len(out_send_stats_tot))}
 in_send_stats_dic = {i: in_send_stats_tot[i] for i in range(len(in_send_stats_tot))}
 
-# out_send_stats = {i:out_send_stats_tot[i] for i in G_dir.nodes}
-# in_send_stats = {i:in_send_stats_tot[i] for i in G_dir.nodes} ##wrong node index!!
 
 out_degree = dict(G_dir.out_degree)
 in_degree = dict(G_dir.in_degree)
                  
-## get the name!                 
+## collect them in the dataframe               
 users_data['tot_msg_sent'] = pd.Series(out_send_stats_dic)
 users_data['tot_msg_recieved'] = pd.Series(in_send_stats_dic)
 users_data['out_degree'] = pd.Series(out_degree)
 users_data['in_degree'] = pd.Series(in_degree)
 
 
-
+### run network measurements on the two undirected networks, get datapoint for every user
 networks = {'G1': G1, 'G2': G2}
 
 list_of_methods = ['degree_centrality', 'betweenness_centrality', 'closeness_centrality', 'eigenvector_centrality',
@@ -239,6 +238,7 @@ users_data['degree_centrality_G2_tot'] = users_data['degree_centrality_G2'] * (l
 # Identify burnout risk
 # =============================================================================
 
+### calulate number and rate of emails sent on weekends and after working hours
 over_work = pd.DataFrame(users_data['Email'])
 work_days = np.zeros(len(over_work), dtype=int)
 weekends = np.zeros(len(over_work), dtype=int)
@@ -251,17 +251,12 @@ for row in df_dic: #use their local time?
         indx0 = users_data[users_data['Email'] == sen].index.values
         if len(indx0) > 0:
             indx = indx0[0]
-            # rec = [i for i in rec if i in rec_internal]
-            #t = data.iloc[k]['ts_or']
-            t = row['ts_or']
-            #if users_data['Location'][indx] in offsetdic.keys():
-            #    t_loc = t + offsetdic[users_data['Location'][indx]]
-            #else:
-            #    t_loc = t
+
+            t = row['ts_or'] ## this is the local time (of sender)
+
             day = t.date().weekday()
             hour = t.hour
-            #day = df.iloc[k]['origin_timestamp_utc'].date().weekday()
-            #hour = 
+
             if day > 5: 
                 weekends[indx] += 1
             elif hour < 7 or hour > 17:
@@ -280,6 +275,50 @@ users_data['overwork_ratio_1_ah'] = over_work['after_wh'] / (
 users_data['overwork_tot_1'] = over_work['weekends']
 
 users_data.loc[users_data['tot_msg_sent'] < 10, 'overwork_ratio_1'] = 0
+
+### calculate effective length of days by taking time difference between 
+### first email of the day and last email, counting all days that are longer than 8.5 hours
+ts_list = {}
+ts_len = {}
+df_dic = data.to_dict('records')
+for row in df_dic: #use their local time?
+    sen = row['sender']    
+    if sen in human_users:
+        indx0 = users_data[users_data['Email'] == sen].index.values
+        if len(indx0) > 0:
+            indx = indx0[0]
+            t = row['ts_or']
+            if not indx in ts_list.keys():
+                ts_list[indx] = []
+            ts_list[indx] = ts_list[indx] + [t]
+            
+for user, tsl in ts_list.items():
+    tsl.sort()
+    l_of_day = []
+    day = tsl[0].date()
+    h0 = tsl[0]
+    for t in tsl:
+        if t.date() == day:
+            hmax = t
+        else:
+            day = t.date()
+            l_day = hmax - h0
+            l_of_day.append(l_day)
+            h0 = t
+            hmax = t
+    ts_len[user] = l_of_day
+    
+## count days that are longer than 8,5 hours
+t0 = datetime.timedelta(hours=8, minutes=30)
+len_days_tot = {n:(len([t for t in tl if t > t0])) for n, tl in ts_len.items()}           
+users_data['n_long_days'] = pd.Series(len_days_tot)  
+
+
+
+
+
+
+
 
 
 
