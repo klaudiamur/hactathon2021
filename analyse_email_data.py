@@ -13,6 +13,8 @@ import datetime
 import bisect
 import gender_guesser.detector as gender
 import matplotlib.pyplot as plt
+import pytz
+import ast
 
 def find_le(a, x):
     'Find rightmost value less than or equal to x'
@@ -110,9 +112,15 @@ def make_tight_nw(dir_matrix, biwe, wts, tst):
     return G, nw_biwe_tot
 
 
-path = '/Users/klaudiamur/Documents/hackathon'
+path = '/Users/klaudiamur/Documents/hackathon/hactathon2021'
 
 data_tmp = pd.read_csv(path+'/emails.csv')
+
+with open(path+'/myfile.txt') as f:
+    data = f.read()
+
+team_data = ast.literal_eval(data)
+chart_tree = np.load(path + '/chart_tree.npy')
 
 senders = {}
 recipients = {}
@@ -272,7 +280,7 @@ users_data['overwork_ratio_1'] = over_work['weekends'] / (
 users_data['overwork_ratio_1_ah'] = over_work['after_wh'] / (
             over_work['workdays'] + over_work['after_wh'])  ### only if they sent at least 10 emails!
 
-users_data['overwork_tot_1'] = over_work['weekends']
+users_data['overwork_tot_1'] = over_work['weekends'] + over_work['after_wh']
 
 users_data.loc[users_data['tot_msg_sent'] < 10, 'overwork_ratio_1'] = 0
 
@@ -302,7 +310,7 @@ for user, tsl in ts_list.items():
             hmax = t
         else:
             day = t.date()
-            l_day = hmax - h0
+            l_day = hmax.astimezone(pytz.UTC) - h0.astimezone(pytz.UTC)
             l_of_day.append(l_day)
             h0 = t
             hmax = t
@@ -313,15 +321,100 @@ t0 = datetime.timedelta(hours=8, minutes=30)
 len_days_tot = {n:(len([t for t in tl if t > t0])) for n, tl in ts_len.items()}           
 users_data['n_long_days'] = pd.Series(len_days_tot)  
 
+# =============================================================================
+# analyse formal hierarchy and teams
+# =============================================================================
+users_data['teamname'] = pd.Series(team_data)
+boss_indx = 0
+for i in range(len(chart_tree)):    
+    if np.sum(chart_tree, axis = 0)[i] == 0:
+        if np.sum(chart_tree, axis = 1)[i] > 0:
+            boss_indx = i
+            
+          
+formal_hierarchy_tree = nx.from_numpy_matrix(chart_tree, create_using=nx.DiGraph())
+formal_hierarchy_tree.remove_nodes_from(list(nx.isolates(formal_hierarchy_tree)))
+### find the ones that are in the tree but not in the email list:
+indx = [n for n in range(len(users_data)) if n not in formal_hierarchy_tree.nodes()]    
+not_in_chart = users_data.iloc[indx]
+
+people_below = {}
+n_direct_managing = {}
+depth_below = {}
+heigth = {}
+manager= {}
+for n in formal_hierarchy_tree.nodes():
+    sp = nx.shortest_path(formal_hierarchy_tree, source = boss_indx, target = n)
+    if len(sp) > 2:
+        manager[n] = sp[-2]
+    heigth[n] = len(sp)
+    #heigth[n] = nx.shortest_path_length(formal_hierarchy_tree, source = boss_indx, target = n)
+    reachable_nodes = nx.single_source_shortest_path_length(formal_hierarchy_tree, n)
+    people_below[n] = len(reachable_nodes) -1 
+    n_direct_managing[n] = len( [k for k, v in reachable_nodes.items() if v == 1])
+    depth_below[n] = max(reachable_nodes.values())
+    
+users_data['people_below']=pd.Series(people_below)   
+users_data['n_direct_managing'] = pd.Series(n_direct_managing)
+users_data['depth_below'] = pd.Series(depth_below)
+users_data['heigth'] = pd.Series(heigth)
+users_data['manager'] = pd.Series(manager)
+
+
+
+# =============================================================================
+# more measurement with network + hierarchy data
+# =============================================================================
+for name, ntwork in networks.items():
+    div_teams = {}
+    #ratio own team - other teams
+    ratio_div_t = {}
+    div_hier = {} ## how many of the connections are to higher up, how many down
+    
+    
+    for i in ntwork.nodes:
+        nb = [k for k in  ntwork.neighbors(i)]
+        team_nb = [users_data['teamname'][n] for n in nb if not pd.isna(users_data['teamname'][n])] ## only if not nan!
+        h_nb = [users_data['heigth'][n] for n in nb if not pd.isna(users_data['heigth'][n])]
+        div_hier[i] = np.mean(h_nb) - users_data['heigth'][i]
+
+        
+        div_t_tot = len(team_nb)
+        if div_t_tot > 0:
+            div_t = [l for l in team_nb if l != users_data['teamname'][i]]        
+            ratio_div_t[i] = 1 - len(div_t)/div_t_tot
+            div_tea = len(np.unique(div_t))
+            div_teams[i] = div_tea
+            
+
+    users_data['div_interaction_teams_' + name] = pd.Series(div_teams)
+    users_data['div_hier_'+name] = pd.Series(div_hier)
+    users_data['ratio_div_t_'+name] = pd.Series(ratio_div_t)
+    
+    # if network is connected:
+    #if name == 'G1':
+    #    dis_0 = {}
+    #    for i in ntwork.nodes():
+    #        sp = nx.shortest_path_length(ntwork, source = boss_indx, target = i)
+    #        dis_0[i] = sp
+    #    users_data['dis_from_CEO_G1'] = pd.Series(dis_0)        
+    
+ 
+    results_dict = {}
+    for n in ntwork.nodes():
+        gender_ratio = np.mean([users_data['gender_num'][n1] for n1 in ntwork.neighbors(n) if not pd.isna(users_data['gender_num'][n1]) ])
+        results_dict[n] = gender_ratio
+        
+    users_data['homophiliy_'+name] = pd.Series(results_dict)  
+
+users_data.to_csv(path + '/users_data.csv')
 
 
 
 
 
 
-
-
-
+users_data.to_csv(path + '/users_data.csv')
 
 
 G = G1
