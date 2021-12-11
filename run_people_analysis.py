@@ -14,6 +14,9 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+
+from sklearn.impute import SimpleImputer
 import seaborn as sn
 from sklearn.metrics import f1_score
 from sklearn.model_selection import GridSearchCV
@@ -21,78 +24,14 @@ from sklearn.metrics import make_scorer
 from sklearn.metrics import plot_confusion_matrix
 
 
-user_data = pd.read_csv('users_data.csv')[:500]
+users_data = pd.read_csv('users_data.csv')[:500]
 
 
-X =np.array(users_data[users_data.columns[~users_data.columns.isin(['Location', 'Email', 'Name', 'gender', 'first_name', 'title', 'manager'])]], dtype = float)
-imp = SimpleImputer(missing_values=np.nan, strategy='median')
-imp.fit(X)
-X = imp.transform(X)
-scaler = StandardScaler().fit(X)
-X_train = scaler.transform(X)
-#X_valid = scaler.transform(X_valid)
-
-pca = PCA(n_components=2).fit(X_train)
-X_train_rd = pca.transform(X_train) 
-
-
-kmeans = KMeans(n_clusters=16, random_state=0).fit_predict(X_train)
-#### does it correspond to locations?
-
-
-c_gend = ['red' if n == 1 else 'blue' if n == 0 else 'grey' for i, n in  users_data['gender_num'].iteritems()]
-plt.figure(figsize=(10,6)) 
-plt.xlabel('Principal Component 1') 
-plt.ylabel('Principal Compnent 2') 
-plt.axis('equal') 
-plt.title('Wrong vs. correct classified validation datapoints') 
-
-#plt.scatter(X_train_rd[:, 0], X_train_rd[:, 1], c=y_train, cmap=cm_bright, edgecolors='k')
-plt.scatter(X_train_rd[:, 0], X_train_rd[:, 1], c = c_gend)
-#plt.scatter(X_valid_rd[ind_correct, 0], X_valid_rd[ind_correct, 1], c=y_valid[ind_correct], cmap=cm_bright, edgecolors='k', alpha=0.2)
-#plt.scatter(X_valid_rd[ind_wrong, 0], X_valid_rd[ind_wrong, 1], c=y_valid[ind_wrong], cmap=cm_bright, edgecolors='k', alpha=1)
-
-plt.show()
-
-
-
-users_data = data[:200]
-X_train = users_data[['tot_msg_sent',
-       'tot_msg_recieved', 'out_degree', 'in_degree', 'degree_centrality_G1',
-       'betweenness_centrality_G1', 'closeness_centrality_G1',
-       'eigenvector_centrality_G1', 'clustering_G1', 'core_number_G1',
-       'node_clique_number_G1', 'constraint_G1', 'degree_centrality_G2',
-       'betweenness_centrality_G2', 'closeness_centrality_G2',
-       'eigenvector_centrality_G2', 'clustering_G2', 'core_number_G2',
-       'node_clique_number_G2', 'constraint_G2', 'degree_centrality_G1_tot',
-       'degree_centrality_G2_tot', 'overwork_ratio_1', 'overwork_ratio_1_ah',
-       'overwork_tot_1', 'homophiliy_G_dir', 'homophiliy_G1', 'homophiliy_G2']][:170]
-y_train = users_data['gender_num'][:170]
-X_valid = users_data[['tot_msg_sent',
-       'tot_msg_recieved', 'out_degree', 'in_degree', 'degree_centrality_G1',
-       'betweenness_centrality_G1', 'closeness_centrality_G1',
-       'eigenvector_centrality_G1', 'clustering_G1', 'core_number_G1',
-       'node_clique_number_G1', 'constraint_G1', 'degree_centrality_G2',
-       'betweenness_centrality_G2', 'closeness_centrality_G2',
-       'eigenvector_centrality_G2', 'clustering_G2', 'core_number_G2',
-       'node_clique_number_G2', 'constraint_G2', 'degree_centrality_G1_tot',
-       'degree_centrality_G2_tot', 'overwork_ratio_1', 'overwork_ratio_1_ah',
-       'overwork_tot_1', 'homophiliy_G_dir', 'homophiliy_G1', 'homophiliy_G2']][170:]
-y_valid = users_data['gender_num'][170:]
-
-### only use the ones that are in G2?
-
-scaler = StandardScaler().fit(X_train)
-X_train = scaler.transform(X_train)
-X_valid = scaler.transform(X_valid)
-
-pca = PCA(n_components=2).fit(X_train)
-
-X_valid_rd = pca.transform(X_valid)
-X_train_rd = pca.transform(X_train)
-
+# =============================================================================
+# plot correlation matrix for first look at dataset
+# =============================================================================
 fig = plt.figure(dpi = 200, figsize=(20,20))
-corrMatrix = users_data[users_data.columns[~users_data.columns.isin(['Location', 'Email', 'Name'])]].corr()
+corrMatrix = users_data[users_data.columns[~users_data.columns.isin([ 'Email', 'first_name', 'gender'])]].corr()
 #ticks = ['Messages sent', 'Messages recieved', 'Out-degree centrality', 'In-degree centrality']
 sn.heatmap(corrMatrix, annot=True, fmt='.2f', 
            vmin=-1, vmax=1, 
@@ -103,14 +42,141 @@ plt.title('Correlation Matrix User Data')
 #plt.xticks(rotation=-40)
 plt.show() 
 
+# =============================================================================
+# classification with gender as y
+# =============================================================================
 
-corrmatrix = users_data.corr()
+
+
+X =np.array(users_data[users_data.columns[~users_data.columns.isin(['Email', 'gender', 'first_name','gender_num'])]], dtype = float)
+y = np.array(users_data['gender_num'])
+y = [0 if np.isnan(i) else i for i in y]
+imp = SimpleImputer(missing_values=np.nan, strategy='median')
+imp.fit(X)
+X = imp.transform(X)
+X_train, X_test, y_train, y_test = train_test_split(X, y, stratify=y, random_state=42)
+
+scaler = StandardScaler().fit(X_train)
+X_train = scaler.transform(X_train)
+X_test = scaler.transform(X_test)
+#X_valid = scaler.transform(X_valid)
+
+pca = PCA(n_components=2).fit(X_train)
+X_train_rd = pca.transform(X_train) 
+
+# =============================================================================
+# plot pca as scatter
+# =============================================================================
+c_gend = ['red' if n == 1 else 'blue' if n == 0 else 'grey' for n in y_train]
+plt.figure(figsize=(10,6)) 
+plt.xlabel('Principal Component 1') 
+plt.ylabel('Principal Compnent 2') 
+plt.axis('equal') 
+plt.scatter(X_train_rd[:, 0], X_train_rd[:, 1], c = c_gend)
+
+plt.show()
+
+# =============================================================================
+# perform gridsearch to find best parameters
+# =============================================================================
+
+clf = RandomForestClassifier()
+
+param_grid = { 
+    'n_estimators': [10, 100, 1000],
+    'bootstrap': [True, False],
+    'criterion': ['gini', 'entropy'],
+    'max_depth': [10, 50, 100, None],
+    #'max_features': ['auto', 'sqrt'],
+    'min_samples_leaf': [1, 2, 4],
+    #'min_samples_split': [2, 5, 10],
+    'class_weight': [None, 'balanced', 'balanced_subsample'],
+    #'ccp_alpha': np.arange(0, 5, 0.5)
+}
+
+
+
+CV_clf = GridSearchCV(estimator=clf, param_grid=param_grid, cv= 5, scoring=make_scorer(f1_score, average='weighted'))
+CV_clf.fit(X_train, y_train)
+
+y_pred = CV_clf.predict(X_test)
+score= f1_score(y_test, y_pred, average='weighted')
+print(score)
+
+imp_features = CV_clf.feature_importances_
+imp_feat_ind = np.argsort(imp_features)[::-1]
+imp_feat_sorted = np.sort(imp_features)[::-1]
+plt.plot(imp_feat_sorted, '.')
+plt.title('Feature importance (ordered), Random forest classifier')
+
 corrmatrix = np.corrcoef(X_train.T, y_train)
 corr_y = corrmatrix[-1][:-1]
-corr_y_sort = np.sort(corr_y)
+corr_y_sort = np.sort(corr_y)[::-1]
+corr_y_ind = np.argsort(corr_y)[::-1]
 
-plt.figure(figsize = (10, 7))
-plt.plot(corr_y_sort, '.')
-plt.title('Correlation coefficients between features and y in training set')
-plt.ylabel('Correlation coefficient')
-plt.xlabel('Sorted features')
+
+### plot feature space of two most important dimensions/features
+cm = plt.cm.RdBu
+cm_bright = ListedColormap(['#FF0000', '#0000FF'])
+
+#i = imp_feat_ind[0]
+#j= imp_feat_ind[1]
+i = corr_y_ind[0]
+j = corr_y_ind[1]
+n_i = users_data.columns[~users_data.columns.isin([ 'Email', 'first_name', 'gender'])][i]
+n_j = users_data.columns[~users_data.columns.isin([ 'Email', 'first_name', 'gender'])][j]
+plt.figure(figsize=(10,10)) 
+plt.xlabel(n_i) 
+plt.ylabel(n_j) 
+plt.axis('equal') 
+plt.title('') 
+h = .1
+
+x_min, x_max = X_train[:, i].min() - .5, X_train[:, i].max() + .5 
+y_min, y_max = X_train[:, j].min() - .5, X_train[:, j].max() + .5 
+xx, yy = np.meshgrid( np.arange(x_min, x_max, h), np.arange(y_min, y_max, h))
+
+x = np.zeros((np.shape(xx.ravel())[0], np.shape(X_train)[1])) 
+x[:, i] = xx.ravel() 
+x[:, j] = yy.ravel()
+
+#x = np.c_[xx.ravel(), yy.ravel()]
+
+Z = clf.predict_proba(x)[:, 1]
+
+Z = Z.reshape(xx.shape)
+
+plt.contourf(xx, yy, Z, cmap=cm, alpha=.8) 
+plt.xlim((x_min, x_max)) 
+plt.ylim((y_min, y_max))
+
+plt.scatter(X_train[:, i], X_train[:, j], c=y_train, cmap=cm_bright, edgecolors='k')
+#plt.scatter(X_valid[ind_correct, i], X_valid[ind_correct, j], c=y_valid[ind_correct], cmap=cm_bright, edgecolors='k', alpha=0.2)
+#plt.scatter(X_valid[ind_wrong, i], X_valid[ind_wrong, j], c=y_valid[ind_wrong], cmap = cm_bright, edgecolors='k', alpha=1)
+
+plt.show()
+
+
+
+
+
+
+clf = RandomForestClassifier(bootstrap = False, max_features = None, class_weight='balanced', criterion = 'entropy', max_depth = None, min_samples_leaf = 2, n_estimators = 1000)
+clf.fit(X_train, y_train)
+y_pred = clf.predict(X_test)
+score= f1_score(y_test, y_pred, average='weighted')
+print(score)
+
+
+imp_features = clf.feature_importances_
+imp_feat_ind = np.argsort(imp_features)[::-1]
+imp_feat_sorted = np.sort(imp_features)[::-1]
+plt.plot(imp_feat_sorted, '.')
+plt.title('Feature importance (ordered), Random forest classifier')
+
+corrmatrix = np.corrcoef(X_train.T, y_train)
+corr_y = corrmatrix[-1][:-1]
+corr_y_sort = np.sort(corr_y)[::-1]
+corr_y_ind = np.argsort(corr_y)[::-1]
+
+
