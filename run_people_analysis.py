@@ -26,7 +26,6 @@ from sklearn.metrics import plot_confusion_matrix
 
 users_data = pd.read_csv('users_data.csv')[:500]
 
-
 # =============================================================================
 # plot correlation matrix for first look at dataset
 # =============================================================================
@@ -48,7 +47,7 @@ plt.show()
 
 
 
-X =np.array(users_data[users_data.columns[~users_data.columns.isin(['Email', 'gender', 'first_name','gender_num'])]], dtype = float)
+X =np.array(users_data[users_data.columns[~users_data.columns.isin([ 'Email', 'gender', 'first_name','gender_num'])]], dtype = float)
 y = np.array(users_data['gender_num'])
 y = [0 if np.isnan(i) else i for i in y]
 imp = SimpleImputer(missing_values=np.nan, strategy='median')
@@ -99,11 +98,16 @@ param_grid = {
 CV_clf = GridSearchCV(estimator=clf, param_grid=param_grid, cv= 5, scoring=make_scorer(f1_score, average='weighted'))
 CV_clf.fit(X_train, y_train)
 
-y_pred = CV_clf.predict(X_test)
+CV_clf.best_params_
+
+clf = RandomForestClassifier(bootstrap = True, max_features = None, class_weight='balanced', criterion = 'entropy', max_depth = 50, min_samples_leaf = 2, n_estimators = 1000)
+clf.fit(X_train, y_train)
+
+y_pred = clf.predict(X_test)
 score= f1_score(y_test, y_pred, average='weighted')
 print(score)
 
-imp_features = CV_clf.feature_importances_
+imp_features = clf.feature_importances_
 imp_feat_ind = np.argsort(imp_features)[::-1]
 imp_feat_sorted = np.sort(imp_features)[::-1]
 plt.plot(imp_feat_sorted, '.')
@@ -127,7 +131,7 @@ n_i = users_data.columns[~users_data.columns.isin([ 'Email', 'first_name', 'gend
 n_j = users_data.columns[~users_data.columns.isin([ 'Email', 'first_name', 'gender'])][j]
 plt.figure(figsize=(10,10)) 
 plt.xlabel(n_i) 
-plt.ylabel(n_j) 
+plt.ylabel('height in organisational chart') 
 plt.axis('equal') 
 plt.title('') 
 h = .1
@@ -157,26 +161,15 @@ plt.scatter(X_train[:, i], X_train[:, j], c=y_train, cmap=cm_bright, edgecolors=
 plt.show()
 
 
+# =============================================================================
+# Regression with burnoutrisk_score as y
+# =============================================================================
 
+burnoutrisk_score_features = ['n_long_days', 'overwork_ratio_1_ah', 'overwork_tot_1']
 
+columns = {n:i for i, n in enumerate(users_data.columns[~users_data.columns.isin([ 'Email', 'first_name', 'gender'])])}
 
-
-clf = RandomForestClassifier(bootstrap = False, max_features = None, class_weight='balanced', criterion = 'entropy', max_depth = None, min_samples_leaf = 2, n_estimators = 1000)
-clf.fit(X_train, y_train)
-y_pred = clf.predict(X_test)
-score= f1_score(y_test, y_pred, average='weighted')
-print(score)
-
-
-imp_features = clf.feature_importances_
-imp_feat_ind = np.argsort(imp_features)[::-1]
-imp_feat_sorted = np.sort(imp_features)[::-1]
-plt.plot(imp_feat_sorted, '.')
-plt.title('Feature importance (ordered), Random forest classifier')
-
-corrmatrix = np.corrcoef(X_train.T, y_train)
-corr_y = corrmatrix[-1][:-1]
-corr_y_sort = np.sort(corr_y)[::-1]
-corr_y_ind = np.argsort(corr_y)[::-1]
-
+columns_y = [columns[i] for i in burnoutrisk_score_features]
+X_r = np.concatenate((X, y))
+y = np.sum(X[columns_y], axis = 0)
 
