@@ -15,7 +15,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
-
+from sklearn.tree import DecisionTreeRegressor
 from sklearn.impute import SimpleImputer
 import seaborn as sn
 from sklearn.metrics import f1_score
@@ -23,8 +23,8 @@ from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import make_scorer
 from sklearn.metrics import plot_confusion_matrix
 
-
-users_data = pd.read_csv('users_data.csv')[:500]
+path = '/Users/klaudiamur/Documents/hackathon/hactathon2021'
+users_data = pd.read_csv(path + '/users_data.csv', index_col=0)[:500]
 
 # =============================================================================
 # plot correlation matrix for first look at dataset
@@ -164,12 +164,38 @@ plt.show()
 # =============================================================================
 # Regression with burnoutrisk_score as y
 # =============================================================================
-
 burnoutrisk_score_features = ['n_long_days', 'overwork_ratio_1_ah', 'overwork_tot_1']
 
-columns = {n:i for i, n in enumerate(users_data.columns[~users_data.columns.isin([ 'Email', 'first_name', 'gender'])])}
+X =np.array(users_data[users_data.columns[~users_data.columns.isin([ 'Email', 'gender', 'first_name',]+ burnoutrisk_score_features)]], dtype = float)
+## calculate one score from the data
+y = np.array(users_data[burnoutrisk_score_features])
+scaler = StandardScaler().fit(y)
+y_sc = scaler.transform(y)
+y = np.sum(y_sc, axis = 1)
+y = [0 if np.isnan(i) else i for i in y]
 
-columns_y = [columns[i] for i in burnoutrisk_score_features]
-X_r = np.concatenate((X, y))
-y = np.sum(X[columns_y], axis = 0)
+imp = SimpleImputer(missing_values=np.nan, strategy='median')
+imp.fit(X)
+X = imp.transform(X)
+X_train, X_test, y_train, y_test = train_test_split(X, y)
 
+scaler = StandardScaler().fit(X_train)
+X_train = scaler.transform(X_train)
+X_test = scaler.transform(X_test)
+
+
+
+model = DecisionTreeRegressor()
+# fit the model
+model.fit(X, y)
+# get importance
+imp_features = model.feature_importances_
+# summarize feature importance
+
+imp_feat_ind = np.argsort(imp_features)[::-1]
+imp_feat_sorted = np.sort(imp_features)[::-1]
+fn = users_data.columns[~users_data.columns.isin([ 'Email', 'gender', 'first_name',]+ burnoutrisk_score_features)][imp_feat_ind]
+c_f = "#18144C"
+plt.bar([x for x in range(len(imp_feat_sorted))][:10], imp_feat_sorted[0:10],  color = c_f)
+plt.xticks(ticks = [x for x in range(len(imp_feat_sorted))][0:10], labels =fn[0:10], rotation=-90)
+plt.show()
